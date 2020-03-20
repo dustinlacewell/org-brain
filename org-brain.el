@@ -949,56 +949,46 @@ Only works on headline entries."
         (concat (substring title 0 (1- org-brain-title-max-length)) "…")
       title)))
 
+(defun org-brain-file-entry-text (entry &optional all-data)
+;; File entry
+  (with-current-buffer (switch-to-buffer "*test*")
+    (erase-buffer)
+    (ignore-errors (insert-file-contents (org-brain-entry-path entry)))
+    (unless all-data
+      (while (let* ((beg (line-beginning-position))
+                    (end (line-end-position))
+                    (line (buffer-substring-no-properties beg end)))
+               (or (looking-at "[[:space:]]*$")
+                   (looking-at org-brain-keyword-regex)))
+        (next-line)))
+    (buffer-substring-no-properties (point) (if org-brain-show-full-entry (point-max)
+                                              (org-brain-first-headline-position)))))
+
+(defun org-brain-headline-entry-text (entry &optional all-data)
+  (org-with-point-at (org-brain-entry-marker entry)
+    (let ((tags (org-get-tags nil t)))
+      (unless (and (member org-brain-exclude-text-tag tags)
+                   (not all-data))
+        (unless all-data
+          (goto-char (cdr (org-get-property-block)))
+          (end-of-line))
+        (let (end)
+          (save-excursion
+            (or (and (not (member org-brain-exclude-children-tag tags))
+                     (not (member org-brain-show-children-tag tags))
+                     (org-goto-first-child))
+                (org-end-of-subtree t))
+            (setq end (point)))
+          (buffer-substring-no-properties (point) end))))))
+
 (defun org-brain-text (entry &optional all-data)
   "Get the text of ENTRY as string.
 Only get the body text, unless ALL-DATA is t."
-  (when-let
-      ((entry-text
-        (if (org-brain-filep entry)
+  (if (org-brain-filep entry)
             ;; File entry
-            (with-temp-buffer
-              (ignore-errors (insert-file-contents (org-brain-entry-path entry)))
-              (goto-char (if org-brain-show-full-entry (buffer-size) (org-brain-first-headline-position)))
-              (buffer-substring-no-properties
-               (if all-data
-                   (point-min)
-                 (or (save-excursion
-                       (when (re-search-backward org-brain-keyword-regex nil t)
-                         (end-of-line)
-                         (point)))
-                     (point-min)))
-               (if (let ((filetags (org-brain-get-tags entry)))
-                     (or (member org-brain-show-children-tag filetags)
-                         (member org-brain-exclude-children-tag filetags)))
-                   (point-max)
-                 (point))))
+            (org-brain-file-entry-text entry all-data)
           ;; Headline entry
-          (org-with-point-at (org-brain-entry-marker entry)
-            (let ((tags (org-get-tags nil t)))
-              (unless (and (member org-brain-exclude-text-tag tags)
-                           (not all-data))
-                (unless all-data
-                  (goto-char (cdr (org-get-property-block)))
-                  (end-of-line))
-                (let (end)
-                  (save-excursion
-                    (or (and (not (member org-brain-exclude-children-tag tags))
-                             (not (member org-brain-show-children-tag tags))
-                             (org-goto-first-child))
-                        (org-end-of-subtree t))
-                    (setq end (point)))
-                  (buffer-substring-no-properties (point) end))))))))
-    (if all-data
-        (org-remove-indentation entry-text)
-      (with-temp-buffer
-        (insert (org-remove-indentation entry-text))
-        (goto-char (if org-brain-show-full-entry (buffer-size) (org-brain-first-headline-position)))
-        (if (re-search-backward org-brain-resources-start-re nil t)
-            (progn
-              (end-of-line)
-              (re-search-forward org-drawer-regexp nil t))
-          (goto-char (point-min)))
-        (buffer-substring (point) (point-max))))))
+    (org-brain-headline-entry-text entry all-data)))
 
 (defun org-brain-parents (entry)
   "Get parents of ENTRY.
